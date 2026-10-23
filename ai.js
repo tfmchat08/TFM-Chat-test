@@ -1,5 +1,7 @@
 // ---------- فاهم: مساعد الذكاء الاصطناعي (ومساعد الدكتور للأدمن) ----------
 
+// اسم وظيفة الذكاء الاصطناعي في Supabase: الموقع الأساسي ai-chat، والتجريبي ai-chat-test
+const AI_FUNCTION = 'ai-chat-test';
 const AI_ICON = '<img src="ai-icon.png" alt="">';
 const AI_MAX_FILE = 5 * 1024 * 1024;
 const AI_BOOK_MAX = 50 * 1024 * 1024;
@@ -404,7 +406,7 @@ async function aiSend(fromVoice = false) {
     const token = sess.session ? sess.session.access_token : null;
     if (!token) throw new Error(aiLangMode === 'en' ? 'Please log in again' : 'سجّل دخول تاني');
 
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-chat`, {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/${AI_FUNCTION}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
