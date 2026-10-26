@@ -1,7 +1,7 @@
 // ---------- فاهم: مساعد الذكاء الاصطناعي (ومساعد الدكتور للأدمن) ----------
 
 // اسم وظيفة الذكاء الاصطناعي في Supabase: الموقع الأساسي ai-chat، والتجريبي ai-chat-test
-const AI_FUNCTION = 'ai-chat-test';
+const AI_FUNCTION = 'ai-chat';
 const AI_ICON = '<img src="ai-icon.png" alt="">';
 const AI_MAX_FILE = 5 * 1024 * 1024;
 const AI_BOOK_MAX = 50 * 1024 * 1024;
@@ -73,7 +73,7 @@ function applySpeakBtn() {
   const b = $('ai-speak');
   if (!b) return;
   const on = aiVoiceOn();
-  b.textContent = on ? '🔊' : '🔇';
+  b.textContent = (on ? '🔊 ' : '🔇 ') + (aiLangMode === 'en' ? 'Voice replies' : 'الرد الصوتي');
   b.title = aiLangMode === 'en'
     ? (on ? 'Voice replies: on' : 'Voice replies: off')
     : (on ? 'الرد الصوتي: شغال' : 'الرد الصوتي: مقفول');
@@ -82,7 +82,7 @@ function applySpeakBtn() {
 function setMicUI() {
   const b = $('ai-mic');
   if (!b) return;
-  b.textContent = aiListening ? '⏹️' : '🎙️';
+  // الأيقونة بتفضل زي ما هي، والحالة بتتغير بالكلاس بس (زي زرار الريكورد في الشات)
   b.classList.toggle('mic-on', aiListening);
   b.title = aiListening
     ? (aiLangMode === 'en' ? 'Stop' : 'إيقاف')
@@ -274,7 +274,7 @@ function aiNorm(s) {
 function aiNames() {
   return aiExamMode
     ? { ar: 'مساعد الدكتور', en: 'Doctor Assistant' }
-    : { ar: 'فاهم', en: 'Fahem' };
+    : { ar: 'فهيم', en: 'Faheem' };
 }
 
 function aiName() {
@@ -292,9 +292,58 @@ function aiRoomTitle(room) {
 // الترحيب: "أهلا وسهلا يا دكتور" بتظهر بس بعد تفعيل وضع الامتحان، والملحوظة بتتقال مرة واحدة في أول رسالة (من السيرفر)
 function greetingText() {
   if (aiLangMode === 'en') {
-    return "Welcome, I'm Fahem, your AI assistant 🤖\nWrite to me in English, Arabic or any language. I can explain, solve problems, search the web, and review images you send me. I also answer from the course books when they are available.";
+    return "Welcome, I'm Faheem, your AI assistant 🤖\nWrite to me in English, Arabic or any language. I can explain, solve problems, search the web, and review images you send me. I also answer from the course books when they are available.";
   }
-  return 'أهلا وسهلا معاك فاهم 🤖\nكلمني بالمصري أو بالإنجليزي أو أي لغة. أقدر أشرح وأحل وأبحث على النت، وأرد عليك من كتب المادة، ولو بعتلي صورة أقدر أحللها أو أعدّلها لك.';
+  return 'أهلا وسهلا معاك فهيم 🤖\nكلمني بالمصري أو بالإنجليزي أو أي لغة. أقدر أشرح وأحل وأبحث على النت، وأرد عليك من كتب المادة، ولو بعتلي صورة أقدر أحللها أو أعدّلها لك.';
+}
+
+// اقتراحات أسئلة جاهزة تظهر في الشات الفاضي (3 عشوائيين)
+const AI_SUGGESTIONS = {
+  ar: [
+    'اشرح لي مفهوم العرض والطلب بمثال بسيط',
+    'ازاي أحسب نسبة الربح من التكلفة؟',
+    'لخصلي أهم نقط في محاسبة التكاليف',
+    'اديني 5 أسئلة مراجعة على أي مادة',
+    'اشرح الفرق بين الأصول والخصوم',
+    'ازاي أكتب سيرة ذاتية قوية؟',
+    'اعملي جدول مذاكرة لأسبوع امتحانات',
+    'اشرح لي الميزانية العمومية ببساطة',
+  ],
+  en: [
+    'Explain supply and demand with a simple example',
+    'How do I calculate profit margin from cost?',
+    'Summarize the key points of cost accounting',
+    'Give me 5 review questions on any subject',
+    'Explain the difference between assets and liabilities',
+    'Help me write a strong CV',
+    'Make a one-week study plan for exams',
+    'Explain the balance sheet simply',
+  ],
+};
+
+function aiRandomSuggestions(n = 3) {
+  const pool = [...(aiLangMode === 'en' ? AI_SUGGESTIONS.en : AI_SUGGESTIONS.ar)];
+  const out = [];
+  while (out.length < n && pool.length) {
+    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return out;
+}
+
+function appendAiSuggestions() {
+  const box = $('ai-messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'ai-suggest';
+  aiRandomSuggestions(3).forEach(q => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ai-chip';
+    b.textContent = q;
+    // بيحط السؤال في خانة الكتابة، والطالب يبعته بنفسه
+    b.onclick = () => { $('ai-input').value = q; $('ai-input').focus(); };
+    wrap.appendChild(b);
+  });
+  box.appendChild(wrap);
 }
 
 function appendAiBubble(role, text, extra = '') {
@@ -305,6 +354,72 @@ function appendAiBubble(role, text, extra = '') {
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
   return div;
+}
+
+// أزرار تحت آخر رد بس: احفظ كارت، لخّص، اختبرني
+const CARD_PROMPT = 'من الرد اللي فوق اعمل كارت مذاكرة. رجّع JSON بس من غير أي كلام قبله أو بعده، بالشكل ده بالظبط: {"q":"السؤال","a":"الجواب"}';
+const CARDS_KEY = 'fahem_cards';
+
+function appendAiReply(text) {
+  document.querySelectorAll('.ai-actions').forEach(x => x.remove());
+  appendAiBubble('model', text);
+  const en = aiLangMode === 'en';
+  const bar = document.createElement('div');
+  bar.className = 'ai-actions';
+  const actions = [
+    [en ? '🧠 Save card' : '🧠 احفظ كارت', () => aiSend(false, {
+      display: en ? 'Save a card from the reply above' : 'احفظ كارت من الرد اللي فوق',
+      text: CARD_PROMPT,
+      card: true,
+    })],
+    [en ? '📝 Summarize' : '📝 لخّص', () => aiSend(false, {
+      display: en ? 'Summarize the reply above' : 'لخّص الرد اللي فوق',
+      text: en ? 'Summarize the reply above in 3 short points.' : 'لخّص الرد اللي فوق في 3 نقط قصيرة.',
+    })],
+    [en ? '❓ Quiz me' : '❓ اختبرني', () => aiSend(false, {
+      display: en ? 'Quiz me on the reply above' : 'اختبرني على الرد اللي فوق',
+      text: en
+        ? 'Make 3 multiple-choice questions based on the reply above, with 4 options each. Do not reveal the correct answers until I reply.'
+        : 'اعملي 3 أسئلة اختيار من متعدد على الرد اللي فوق، كل سؤال فيه 4 اختيارات. ماتقولش الإجابات الصح غير لما أجاوب.',
+    })],
+  ];
+  actions.forEach(([label, fn]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.onclick = fn;
+    bar.appendChild(b);
+  });
+  $('ai-messages').appendChild(bar);
+}
+
+function loadCards() {
+  try { return JSON.parse(localStorage.getItem(CARDS_KEY) || '[]'); } catch { return []; }
+}
+
+function saveCards(list) {
+  try { localStorage.setItem(CARDS_KEY, JSON.stringify(list)); } catch {}
+}
+
+function saveCard(reply) {
+  const m = String(reply || '').match(/\{[\s\S]*\}/);
+  let card = null;
+  try { card = m ? JSON.parse(m[0]) : null; } catch {}
+  if (!card || !card.q || !card.a) {
+    return appendAiBubble('model', aiLangMode === 'en' ? "Couldn't make a card, try again." : 'ما قدرتش أعمل الكارت، جرّب تاني.');
+  }
+  const list = loadCards();
+  list.push({ q: String(card.q), a: String(card.a), room: aiRoom, at: Date.now() });
+  saveCards(list);
+  appendAiBubble('model', (aiLangMode === 'en' ? '🧠 Card saved: ' : '🧠 اتحفظ الكارت: ') + card.q);
+}
+
+function showCards() {
+  const mine = loadCards().filter(c => c.room === aiRoom);
+  if (!mine.length) {
+    return appendAiBubble('model', aiLangMode === 'en' ? 'No cards in this room yet.' : 'مفيش كروت في الشعبة دي لسه.');
+  }
+  mine.forEach((c, i) => appendAiBubble('model', `${i + 1}. ❓ ${c.q}\n✅ ${c.a}`));
 }
 
 function applyAiLabels() {
@@ -341,10 +456,11 @@ async function renderAiHistory() {
 
   if (!data || !data.length) {
     appendAiBubble('model', greetingText());
+    appendAiSuggestions();
     return;
   }
 
-  data.forEach(m => appendAiBubble(m.role === 'user' ? 'user' : 'model', m.content));
+  data.forEach(m => (m.role === 'user' ? appendAiBubble('user', m.content) : appendAiReply(m.content)));
   box.scrollTop = box.scrollHeight;
 }
 
@@ -379,12 +495,13 @@ function clearAiFile() {
 }
 
 // fromVoice = true لما الرسالة جاية من الميكروفون، وقتها الرد بيتقري بصوت
-async function aiSend(fromVoice = false) {
+// opts: text = نص مختلف عن اللي المستخدم كتبه، display = اللي يظهر في الشات، card = احفظ الرد ككارت
+async function aiSend(fromVoice = false, opts = {}) {
   if (aiBusy || !aiRoom) return;
-  const text = $('ai-input').value.trim();
+  const text = opts.text !== undefined ? opts.text : $('ai-input').value.trim();
   if (!text && !aiPending) return;
 
-  const shown = (text + (aiPending ? `\n📎 ${aiPending.name}` : '')).trim();
+  const shown = ((opts.display ?? text) + (aiPending ? `\n📎 ${aiPending.name}` : '')).trim();
   appendAiBubble('user', shown);
 
   const payload = { room: aiRoom, message: text, lang: aiLangMode };
@@ -392,7 +509,7 @@ async function aiSend(fromVoice = false) {
     payload.file = { name: aiPending.name, mime: aiPending.mime, data: aiPending.data };
   }
 
-  $('ai-input').value = '';
+  if (opts.text === undefined) $('ai-input').value = '';
   clearAiFile();
 
   aiBusy = true;
@@ -419,7 +536,8 @@ async function aiSend(fromVoice = false) {
     const j = await res.json().catch(() => ({}));
     thinking.remove();
     if (!res.ok) throw new Error(j.error || ('Error ' + res.status));
-    appendAiBubble('model', j.reply);
+    if (opts.card) saveCard(j.reply);
+    else appendAiReply(j.reply);
     const wasExam = aiExamMode;
     aiExamMode = aiScanExam([text], aiExamMode);
     applyAiLabels();
@@ -631,6 +749,30 @@ $('ai-lang').onclick = async () => {
   await renderAiHistory();
 };
 
+// الكروت: عرض كروت الشعبة الحالية
+$('ai-cards').onclick = () => showCards();
+
+// أعد الرد: بيمسح آخر رد ويبعت آخر سؤال تاني
+$('ai-regen').onclick = async () => {
+  if (aiBusy || !aiRoom) return;
+  const { data, error } = await sb.from('ai_messages')
+    .select('id, role, content')
+    .eq('room', aiRoom)
+    .order('id', { ascending: false })
+    .limit(2);
+  if (error) return alert(error.message);
+  const [last, prev] = data || [];
+  if (!last || last.role !== 'model' || !prev || prev.role !== 'user') {
+    return alert(aiLangMode === 'en' ? 'Nothing to regenerate yet' : 'مفيش رد أقدر أعيده دلوقتي');
+  }
+  const { error: delErr } = await sb.from('ai_messages').delete().in('id', [last.id, prev.id]);
+  if (delErr) return alert(delErr.message);
+  const question = prev.content.replace(/ \[ملف: .*\]$/, '').trim();
+  await renderAiHistory();
+  $('ai-input').value = question;
+  aiSend(false);
+};
+
 $('ai-clear').onclick = async () => {
   if (!aiRoom) return;
   if (!confirm(aiLangMode === 'en' ? 'Clear this chat?' : 'تمسح المحادثة دي؟')) return;
@@ -684,7 +826,30 @@ $('ai-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') aiSend(false);
 });
 
-$('set-admin').addEventListener('click', () => setTimeout(loadAiBooksAdmin, 0));
+// ---------- إعدادات فهيم ----------
+function closeAiSettings() {
+  $('ai-settings-modal').classList.add('hidden');
+}
+
+$('ai-settings-btn').onclick = () => {
+  const isAdmin = !!(currentProfile && currentProfile.role === 'admin');
+  $('ai-books-open').classList.toggle('hidden', !isAdmin);
+  $('ai-settings-modal').classList.remove('hidden');
+};
+$('ai-settings-close').onclick = closeAiSettings;
+
+// زرار إضافة الكتب (الأدمن بس): يفتح/يقفل قسم رفع الكتب
+$('ai-books-open').onclick = () => {
+  const box = $('ai-books-admin');
+  box.classList.toggle('hidden');
+  if (!box.classList.contains('hidden')) loadAiBooksAdmin();
+};
+
+// الزراير اللي جوه الإعدادات بتقفل النافذة بعد ما تتضغط
+['ai-speak', 'ai-lang', 'ai-cards', 'ai-regen', 'ai-clear'].forEach(id => {
+  $(id).addEventListener('click', closeAiSettings);
+});
+applySpeakBtn();
 
 sb.auth.onAuthStateChange((event, session) => {
   if (!session) closeAiScreen();
@@ -694,6 +859,12 @@ sb.auth.onAuthStateChange((event, session) => {
 (function injectVoiceStyle() {
   const st = document.createElement('style');
   st.textContent = `
+    .ai-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+    .ai-actions button { border: 1px solid #6e0819; background: transparent; color: #6e0819; border-radius: 12px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+    .ai-actions button:active { background: #6e0819; color: #fff; }
+    .ai-suggest { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px; }
+    .ai-chip { border: 1px solid #6e0819; background: transparent; color: #6e0819; border-radius: 16px; padding: 7px 12px; font-size: 14px; cursor: pointer; text-align: start; }
+    .ai-chip:active { background: #6e0819; color: #fff; }
     .ai-status { font-size: 13px; padding: 6px 14px; text-align: center; }
     .ai-status.listen { color: #6e0819; font-weight: bold; }
     .ai-status.think { opacity: .75; }

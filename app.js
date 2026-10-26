@@ -26,7 +26,7 @@ const T = {
     pwInvalid: 'الباسورد لازم يكون 8 حروف على الأقل، وفيه حرف كبير وصغير ورقم ورمز',
     avatarReq: 'اختار صورة بروفايل الأول',
     checkEmail: 'اتعمل الحساب. اتأكد من إيميلك أو سجّل دخول',
-    loginFail: 'الإيميل أو الباسورد غلط', exists: 'الإيميل ده متسجل قبل كده',
+    loginFail: 'الإيميل أو الباسورد غلط. لو انت معندكش حساب، اعمل حساب جديد الأول', exists: 'الإيميل ده متسجل قبل كده',
     resetSent: 'بعتنالك لينك تغيير الباسورد على الإيميل', pwChanged: 'تم تغيير الباسورد',
     linkExpired: 'اللينك انتهى أو اتستخدم قبل كده. اطلب لينك جديد من "نسيت كلمة السر"',
     recTitle: 'باسورد جديد', recSave: 'حفظ الباسورد',
@@ -75,7 +75,7 @@ const T = {
     pwInvalid: 'Password must be at least 8 characters with uppercase, lowercase, a number and a symbol',
     avatarReq: 'Choose a profile picture first',
     checkEmail: 'Account created. Check your email or log in',
-    loginFail: 'Wrong email or password', exists: 'This email is already registered',
+    loginFail: 'Wrong email or password. If you do not have an account, please create one first', exists: 'This email is already registered',
     resetSent: 'We sent a password reset link to your email', pwChanged: 'Password changed',
     linkExpired: 'This link expired or was already used. Request a new one from "Forgot password?"',
     recTitle: 'New password', recSave: 'Save password',
@@ -166,6 +166,21 @@ function currentRoom() {
   return `${track}-${level}`;
 }
 
+// الشات اللي جوه الشعبة (من 1 لـ 5)
+function readChatSlot() {
+  try {
+    const n = Number(localStorage.getItem('chatSlot'));
+    return n >= 1 && n <= 5 ? n : 1;
+  } catch {
+    return 1;
+  }
+}
+let currentChatSlot = readChatSlot();
+
+function saveChatSlot() {
+  try { localStorage.setItem('chatSlot', String(currentChatSlot)); } catch {}
+}
+
 function saveRoom() {
   try {
     localStorage.setItem('track', track);
@@ -242,7 +257,6 @@ function showScreen(id) {
   ['auth-screen', 'recovery-screen', 'chat-screen'].forEach(s => $(s).classList.add('hidden'));
   $(id).classList.remove('hidden');
   $('members-panel').classList.add('hidden');
-  $('admin-modal').classList.add('hidden');
 }
 
 function setMsg(id, text, isErr = true) {
@@ -267,6 +281,62 @@ function scrollBottom() {
   const el = $('messages');
   el.scrollTop = el.scrollHeight;
 }
+
+// ---------- مشغل الصوت المخصص (بدل المشغل الافتراضي للمتصفح) ----------
+function voicePlayerHtml(src) {
+  return `<div class="vp" dir="ltr">
+    <audio src="${esc(src)}" preload="metadata"></audio>
+    <button type="button" class="vp-play" aria-label="play">▶</button>
+    <div class="vp-track"><div class="vp-fill"></div></div>
+    <span class="vp-time">0:00</span>
+  </div>`;
+}
+
+function voiceFmt(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const sec = String(Math.floor(s % 60)).padStart(2, '0');
+  return `${m}:${sec}`;
+}
+
+// الكليك على المشغل بيتعالج هنا بالكامل (capture) عشان ما يفتحش قايمة الرسالة
+document.addEventListener('click', e => {
+  const box = e.target.closest && e.target.closest('.vp');
+  if (!box) return;
+  e.stopPropagation();
+  const audio = box.querySelector('audio');
+
+  if (e.target.closest('.vp-play')) {
+    if (audio.paused) {
+      document.querySelectorAll('.vp audio').forEach(a => { if (a !== audio) a.pause(); });
+      audio.play().catch(() => {});
+    } else {
+      audio.pause();
+    }
+    return;
+  }
+
+  const track = e.target.closest('.vp-track');
+  if (track && audio.duration) {
+    const r = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    audio.currentTime = ratio * audio.duration;
+  }
+}, true);
+
+// تحديث الشريط والوقت والزرار (أحداث الميديا ما بتطلعش للفوق، فبنستخدم capture)
+['timeupdate', 'loadedmetadata', 'play', 'pause', 'ended'].forEach(ev => {
+  document.addEventListener(ev, e => {
+    const audio = e.target;
+    if (!(audio instanceof HTMLAudioElement)) return;
+    const box = audio.closest('.vp');
+    if (!box) return;
+    const d = audio.duration;
+    box.querySelector('.vp-fill').style.width = (d ? (audio.currentTime / d) * 100 : 0) + '%';
+    box.querySelector('.vp-time').textContent = voiceFmt(audio.currentTime) + ' / ' + voiceFmt(d);
+    box.querySelector('.vp-play').textContent = audio.paused ? '▶' : '❚❚';
+  }, true);
+});
 
 function isMediaType(tp) {
   return !!tp && (tp.startsWith('image/') || tp.startsWith('video/') || tp.startsWith('audio/'));
@@ -339,8 +409,6 @@ $('auth-submit').onclick = async () => {
 
   // إنشاء حساب
   if (!validPassword(password)) return setMsg('auth-msg', t('pwInvalid'));
-  const file = $('signup-avatar-input').files[0];
-  if (!file) return setMsg('auth-msg', t('avatarReq'));
 
   signingUp = true;
   const { data, error } = await sb.auth.signUp({
@@ -356,12 +424,6 @@ $('auth-submit').onclick = async () => {
     signingUp = false;
     setAuthMode('login');
     return setMsg('auth-msg', t('checkEmail'), false);
-  }
-  try {
-    await uploadAvatar(file, data.user.id);
-  } catch (e) {
-    signingUp = false;
-    return setMsg('auth-msg', t('avatarFail') + e.message);
   }
   signingUp = false;
   await enterChat(data.user.id);
@@ -466,15 +528,29 @@ async function handleAuthChange(event, session) {
   }
 }
 
+// بوابة إعداد البروفايل: اسم + صورة (ارفع أو اختار من الجاهزة)
+function openProfileGate() {
+  const en = lang === 'en';
+  $('pg-title').textContent = en ? 'Set up your profile' : 'جهّز بروفايلك';
+  $('pg-hint').textContent = en
+    ? 'Choose your display name and a picture (upload one or pick a ready one)'
+    : 'اكتب اسمك واختار صورة (ارفع صورة أو اختار من الجاهزة)';
+  $('pg-name').placeholder = en ? 'Your name' : 'اسمك';
+  $('pg-name').value = currentProfile.display_name || '';
+  $('gate-msg').textContent = '';
+  showScreen('auth-screen');
+  $('avatar-gate').classList.remove('hidden');
+}
+
 async function enterChat(userId) {
   const ok = await loadProfile(userId);
   if (!ok) return;
 
   watchKick(currentProfile.id);
 
-  if (!currentProfile.avatar_url) {
-    showScreen('auth-screen');
-    $('avatar-gate').classList.remove('hidden');
+  // أول دخول (بجوجل أو إيميل) لازم يكتب اسمه ويختار صورة الأول
+  if (!currentProfile.avatar_url || !currentProfile.profile_setup) {
+    openProfileGate();
     return;
   }
 
@@ -485,15 +561,26 @@ async function enterChat(userId) {
   joinTyping();
 }
 
-// بوابة صورة البروفايل للحسابات اللي مفيهاش صورة
+// حفظ بوابة إعداد البروفايل (الاسم + الصورة)
 $('gate-save').onclick = async () => {
+  const name = $('pg-name').value.trim();
+  if (name.length < 2) {
+    return setMsg('gate-msg', lang === 'en' ? 'Name must be at least 2 characters' : 'الاسم لازم يكون حرفين على الأقل');
+  }
   const file = $('gate-input').files[0];
-  if (!file) return setMsg('gate-msg', t('avatarReq'));
+  const hasAvatar = !!currentProfile.avatar_url;
+  if (!file && !window.pickedAvatar && !hasAvatar) return setMsg('gate-msg', t('avatarReq'));
   try {
-    await uploadAvatar(file, currentProfile.id);
+    // الصورة بتتحفظ بس لو المستخدم اختار واحدة جديدة
+    if (file || window.pickedAvatar) await saveAvatarChoice(file, currentProfile.id);
+    const { error } = await sb.from('profiles')
+      .update({ display_name: name, profile_setup: true })
+      .eq('id', currentProfile.id);
+    if (error) throw error;
   } catch (e) {
     return setMsg('gate-msg', t('avatarFail') + e.message);
   }
+  window.pickedAvatar = null;
   await enterChat(currentProfile.id);
 };
 
@@ -562,9 +649,9 @@ $('members-close').onclick = () => $('members-panel').classList.add('hidden');
 
 async function loadMembers() {
   const box = $('members-list');
-  const { data, error } = await sb.from('profiles')
-    .select('id, display_name, avatar_url, role, is_banned')
-    .order('display_name', { ascending: true });
+  if (window.loadBadges) await window.loadBadges();
+  // أعضاء الشعبة دي بس (من السيرفر)
+  const { data, error } = await sb.rpc('room_members', { p_room: currentRoom() });
 
   if (error) {
     box.innerHTML = `<p class="empty">${esc(error.message)}</p>`;
@@ -593,7 +680,80 @@ async function loadMembers() {
     const banned = p.is_banned && currentProfile && currentProfile.role === 'admin' ? ' 🚫' : '';
 
     row.innerHTML = `${avatar}<div class="member-info"><b>${esc(name)}${banned}</b><span class="role-tag">${t(ROLE_KEYS[p.role] || 'roleViewer')}</span></div>`;
-    box.appendChild(row);
+    // زرار ⋮ بيفتح قايمة الإجراءات لكل عضو
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'ghost';
+    more.textContent = '⋮';
+    more.title = lang === 'en' ? 'Actions' : 'إجراءات';
+    row.appendChild(more);
+
+    const actions = document.createElement('div');
+    actions.className = 'member-actions hidden';
+    actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;width:100%;padding:8px 0 2px;';
+
+    const addAction = (label, onclick, cls = 'ghost') => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = cls;
+      b.textContent = label;
+      b.onclick = onclick;
+      actions.appendChild(b);
+    };
+
+    more.onclick = () => actions.classList.toggle('hidden');
+
+    // الكل يشوف رسايل العضو
+    addAction('📜 رسايله في الشعبة', () => showUserMessages(p.id, name));
+
+    // أدوات الأدمن بس (على الأعضاء التانيين)
+    if (currentProfile && currentProfile.role === 'admin' && p.id !== currentProfile.id) {
+      const who = p.display_name || p.id.slice(0, 8);
+
+      ['admin', 'sender', 'viewer'].forEach(r => {
+        const isCurrent = p.role === r;
+        addAction(`${isCurrent ? '✔ ' : ''}${t(ROLE_KEYS[r])}`, async () => {
+          if (isCurrent) return;
+          const { error } = await sb.from('profiles').update({ role: r }).eq('id', p.id);
+          if (error) alert(error.message);
+          else await loadMembers();
+        }, isCurrent ? 'primary' : 'ghost');
+      });
+
+      addAction(p.is_banned ? t('unkick') : t('kick'), async () => {
+        const { error } = await sb.from('profiles').update({ is_banned: !p.is_banned }).eq('id', p.id);
+        if (error) alert(error.message);
+        else await loadMembers();
+      }, p.is_banned ? 'ghost' : 'danger-btn');
+
+      (window.ownedBadgeKeys ? window.ownedBadgeKeys(p.id) : []).forEach(key => {
+        addAction(`🏷️ شيل بادج: ${window.badgeLabel(key)}`, async () => {
+          if (!confirm(`تشيل بادج "${window.badgeLabel(key)}" من "${who}"؟`)) return;
+          await window.revokeBadge(p.id, key);
+        }, 'ghost');
+      });
+
+      addAction('🗑️ حذف الحساب', async () => {
+        if (p.role === 'admin') return alert('مينفعش تحذف أدمن من هنا');
+        if (!confirm(`هتحذف حساب "${who}" نهائياً ورسايله وبياناته؟ ومش هيرجع.`)) return;
+        try {
+          const { data, error } = await sb.functions.invoke('admin-delete-user', { body: { userId: p.id } });
+          if (error || (data && data.error)) {
+            alert('الحذف ما اتعملش: ' + ((data && data.error) || (error && error.message) || ''));
+            return;
+          }
+          await loadMembers();
+        } catch {
+          alert('حصلت مشكلة، جرّب تاني.');
+        }
+      }, 'danger-btn');
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'member-wrap';
+    wrap.appendChild(row);
+    wrap.appendChild(actions);
+    box.appendChild(wrap);
   };
 
   if (admins.length) {
@@ -606,7 +766,6 @@ async function loadMembers() {
 
 // ---------- الإعدادات ----------
 $('settings-btn').onclick = () => {
-  $('set-admin').classList.toggle('hidden', !(currentProfile && currentProfile.role === 'admin'));
   $('settings-modal').classList.remove('hidden');
 };
 $('settings-close').onclick = () => $('settings-modal').classList.add('hidden');
@@ -658,18 +817,75 @@ $('set-name').onclick = async () => {
   await loadMessages();
 };
 
+// ---------- الملف الشخصي (زرار واحد في الإعدادات) ----------
+function pfText() {
+  const en = lang === 'en';
+  return {
+    title: en ? 'Profile' : 'الملف الشخصي',
+    logout: en ? 'Log out' : 'تسجيل خروج',
+    del: en ? '🗑️ Delete account' : '🗑️ حذف الحساب',
+    setBtn: en ? '👤 Profile' : '👤 الملف الشخصي',
+    fontT: en ? 'Font size' : 'حجم الخط',
+    bgT: en ? 'Background' : 'الخلفية',
+  };
+}
+
+function closeProfile() {
+  $('profile-modal').classList.add('hidden');
+}
+
+async function openProfile() {
+  if (!currentProfile) return;
+  const x = pfText();
+  $('pf-title').textContent = x.title;
+  $('pf-logout').textContent = x.logout;
+  $('pf-delete').textContent = x.del;
+  $('pf-font-t').textContent = x.fontT;
+  $('pf-bg-t').textContent = x.bgT;
+  renderPfFont();
+  $('pf-avatar').src = currentProfile.avatar_url || 'avatars/av1.png';
+  $('pf-name').textContent = currentProfile.display_name || t('userDefault');
+  $('pf-email').textContent = '';
+  $('profile-modal').classList.remove('hidden');
+  const { data } = await sb.auth.getUser();
+  $('pf-email').textContent = data && data.user ? (data.user.email || '') : '';
+}
+
+$('profile-close').onclick = closeProfile;
+// الضغط على صورة المستخدم في الهيدر بيفتح الملف الشخصي
+$('user-box').onclick = () => openProfile();
+// كل زرار بيستخدم نفس الوظيفة الأصلية (الإعدادات القديمة متخفية بس)
+$('pf-avatar-btn').onclick = () => { closeProfile(); $('avatar-input').click(); };
+$('pf-name-btn').onclick = () => { closeProfile(); $('set-name').click(); };
+$('pf-logout').onclick = () => { closeProfile(); $('set-logout').click(); };
+$('pf-delete').onclick = () => { closeProfile(); $('set-delete').click(); };
+
+// حجم الخط: بيستخدم نفس زرار prefs.js (بيدوّر على الأحجام)، والكارت بيعرض الحجم الحالي
+const PF_FONTS = {
+  small: ['صغير', 'Small'],
+  normal: ['عادي', 'Normal'],
+  large: ['كبير', 'Large'],
+  xlarge: ['كبير جداً', 'Extra large'],
+};
+
+function renderPfFont() {
+  let k = 'normal';
+  try { k = localStorage.getItem('tfm_font') || 'normal'; } catch {}
+  const f = PF_FONTS[k] || PF_FONTS.normal;
+  $('pf-font-val').textContent = lang === 'en' ? f[1] : f[0];
+}
+
+$('pf-font').onclick = () => {
+  $('set-font').click();
+  renderPfFont();
+};
+$('pf-bg').onclick = () => { closeProfile(); $('set-bg').click(); };
+
 $('set-history').onclick = () => {
   $('settings-modal').classList.add('hidden');
   $('history-modal').classList.remove('hidden');
   renderHistory();
 };
-
-$('set-admin').onclick = async () => {
-  $('settings-modal').classList.add('hidden');
-  $('admin-modal').classList.remove('hidden');
-  await loadUsers();
-};
-$('admin-close').onclick = () => $('admin-modal').classList.add('hidden');
 
 $('set-search').onclick = () => {
   $('settings-modal').classList.add('hidden');
@@ -685,6 +901,7 @@ $('set-notify').onclick = async () => {
 };
 
 function playBeep() {
+  try { if (localStorage.getItem('notifySound') === 'off') return; } catch {}
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const o = ctx.createOscillator();
@@ -725,12 +942,13 @@ document.addEventListener('visibilitychange', () => {
 // ---------- مؤشر "بيكتب" و"بيسجل صوت" ----------
 // بيستخدم Broadcast في Supabase، فمش محتاج أي جدول جديد
 function joinTyping() {
-  const room = currentRoom();
-  if (typingChannel && typingRoom === room) return;
+  // كل شات (شعبة + رقم الشات) ليه قناة كتابة لوحده
+  const key = currentRoom() + '-' + currentChatSlot;
+  if (typingChannel && typingRoom === key) return;
   leaveTyping();
 
-  typingRoom = room;
-  typingChannel = sb.channel('typing-' + room, { config: { broadcast: { self: false } } })
+  typingRoom = key;
+  typingChannel = sb.channel('typing-' + key, { config: { broadcast: { self: false } } })
     .on('broadcast', { event: 'typing' }, ({ payload }) => {
       if (!payload || !currentProfile || payload.id === currentProfile.id) return;
       if (payload.kind === 'stop') typers.delete(payload.id);
@@ -1015,7 +1233,8 @@ function buildMessageEl(m) {
   const pinMark = m.pinned ? '<span class="pin-mark">📌</span>' : '';
 
   let html = `<button class="dots" data-id="${m.id}">⋮</button>`;
-  html += `<div class="meta">${avatar}${esc(m.profiles?.display_name || '?')} · ${time}${pinMark}</div>`;
+  const badgeMark = window.badgeHtml ? window.badgeHtml(m.user_id) : '';
+  html += `<div class="meta">${avatar}${esc(m.profiles?.display_name || '?')}${badgeMark} · ${time}${pinMark}</div>`;
 
   if (m.reply_to) {
     const parent = msgById.get(Number(m.reply_to));
@@ -1036,7 +1255,7 @@ function buildMessageEl(m) {
     } else if (tp.startsWith('video/')) {
       html += `<video src="${esc(m.file_url)}" controls playsinline></video>`;
     } else if (tp.startsWith('audio/')) {
-      html += `<audio src="${esc(m.file_url)}" controls preload="metadata"></audio>`;
+      html += voicePlayerHtml(m.file_url);
     } else {
       html += `<a href="${esc(m.file_url)}" target="_blank">📄 ${esc(fileName(m.file_url))}</a>`;
     }
@@ -1102,9 +1321,13 @@ function flashMsg(id) {
 $('pinned-bar').onclick = () => flashMsg($('pinned-bar').dataset.id);
 
 async function loadMessages() {
+  // الشاتات بترسم الأول، عشان تفضل ظاهرة حتى لو الرسايل فشلت
+  if (window.renderChatTabs) window.renderChatTabs();
+  if (window.loadBadges) await window.loadBadges();
   const { data, error } = await sb.from('messages')
     .select('*, profiles(display_name, avatar_url)')
     .eq('room', currentRoom())
+    .eq('chat_slot', currentChatSlot)
     .order('created_at', { ascending: true })
     .limit(300);
   if (error) {
@@ -1147,6 +1370,7 @@ async function sendMessage(fileUrl = null, fileType = null) {
     file_url: fileUrl,
     file_type: fileType,
     room: currentRoom(),
+    chat_slot: currentChatSlot,
     reply_to: replyingTo
   });
   if (error) return alert(t('sendFail') + error.message);
@@ -1154,6 +1378,8 @@ async function sendMessage(fileUrl = null, fileType = null) {
   clearReply();
   sendTyping('stop');
   lastTypeSent = 0;
+  // نعرض الرسالة فوراً حتى لو الوقت الفعلي (Realtime) اتأخر أو ما وصلش
+  await loadMessages();
 }
 
 $('send-btn').onclick = () => sendMessage();
@@ -1162,11 +1388,20 @@ $('msg-input').addEventListener('keydown', e => {
 });
 
 // ---------- رفع الملفات ----------
+const MAX_UPLOAD_MB = 10;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
 $('attach-btn').onclick = () => $('file-input').click();
 
 $('file-input').onchange = async () => {
   const file = $('file-input').files[0];
   if (!file || !currentProfile) return;
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    alert(`الملف كبير. الحد الأقصى ${MAX_UPLOAD_MB} ميجا`);
+    $('file-input').value = '';
+    return;
+  }
 
   const safeName = file.name.replace(/[^\w.\-]/g, '_');
   const path = `${currentProfile.id}/${Date.now()}_${safeName}`;
@@ -1221,7 +1456,7 @@ $('cam-snap').onclick = () => {
 $('mic-btn').onclick = async () => {
   if (recorder && recorder.state === 'recording') {
     recorder.stop();
-    $('mic-btn').textContent = '🎙️';
+    $('mic-btn').classList.remove('recording');
     return;
   }
   try {
@@ -1235,6 +1470,9 @@ $('mic-btn').onclick = async () => {
       const type = recorder.mimeType || 'audio/webm';
       const ext = type.includes('mp4') ? 'mp4' : 'webm';
       const blob = new Blob(chunks, { type });
+      if (blob.size > MAX_UPLOAD_BYTES) {
+        return alert(`التسجيل كبير. الحد الأقصى ${MAX_UPLOAD_MB} ميجا، سجّل مقطع أقصر`);
+      }
       const path = `${currentProfile.id}/${Date.now()}_voice.${ext}`;
       const { error } = await sb.storage.from('uploads').upload(path, blob, { contentType: type });
       if (error) return alert(t('uploadFail') + error.message);
@@ -1243,7 +1481,7 @@ $('mic-btn').onclick = async () => {
     };
     recorder.start();
     startRecTyping();
-    $('mic-btn').textContent = '⏹️';
+    $('mic-btn').classList.add('recording');
   } catch (err) {
     alert(t('micFail') + err.message);
   }
@@ -1600,6 +1838,59 @@ function renderHistory() {
   });
 }
 
+// ---------- احتياطي: لو الاتصال الحي ما اتفتحش، بنجيب الرسايل الجديدة كل 10 ثواني ----------
+let fallbackTimer = null;
+
+async function pollNewMessages() {
+  try {
+    // أحدث رسالة عندنا، ونجيب بس اللي بعدها (أخف بكتير من إننا نجيب الشات كله كل مرة)
+    let newest = null;
+    msgById.forEach(m => { if (!newest || m.created_at > newest) newest = m.created_at; });
+    let q = sb.from('messages')
+      .select('*, profiles(display_name, avatar_url)')
+      .eq('room', currentRoom())
+      .eq('chat_slot', currentChatSlot);
+    q = newest
+      ? q.gt('created_at', newest).order('created_at', { ascending: true }).limit(50)
+      : q.order('created_at', { ascending: false }).limit(20);
+    const { data, error } = await q;
+    if (error || !data) return;
+    let added = false;
+    (newest ? data : data.reverse()).forEach(m => {
+      if (msgById.has(m.id)) return; // موجودة أصلاً، ما نكررهاش
+      renderMessage(m);
+      added = true;
+    });
+    if (added) {
+      renderPinned();
+      scrollBottom();
+    }
+  } catch {
+    // لو فشل، هنحاول تاني في الدورة الجاية
+  }
+}
+
+function scheduleFallback() {
+  // كل دورة بوقت عشوائي بين 8 و12 ثانية، عشان الطلبات ما تتجمعش في نفس الثانية
+  const wait = 8000 + Math.random() * 4000;
+  fallbackTimer = setTimeout(async () => {
+    // لو التاب مخفية (الموبايل مثلاً) ما نسألش السيرفر
+    if (!document.hidden) await pollNewMessages();
+    if (fallbackTimer) scheduleFallback();
+  }, wait);
+}
+
+function startFallback() {
+  if (fallbackTimer) return;
+  scheduleFallback();
+}
+
+function stopFallback() {
+  if (!fallbackTimer) return;
+  clearTimeout(fallbackTimer);
+  fallbackTimer = null;
+}
+
 // ---------- الوقت الفعلي ----------
 function subscribeToMessages() {
   if (subscribed) return;
@@ -1608,7 +1899,7 @@ function subscribeToMessages() {
   sb.channel('messages-channel')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async payload => {
       // نعرض بس الرسايل اللي في الشعبة والمستوى اللي اخترته
-      if (payload.new.room !== currentRoom()) return;
+      if (payload.new.room !== currentRoom() || payload.new.chat_slot !== currentChatSlot) return;
 
       const { data } = await sb.from('messages')
         .select('*, profiles(display_name, avatar_url)')
@@ -1644,7 +1935,11 @@ function subscribeToMessages() {
       if (!msgById.has(Number(payload.old.message_id))) return;
       applyReact('del', payload.old.message_id, payload.old.emoji, payload.old.user_id);
     })
-    .subscribe();
+    .subscribe(status => {
+      // لو الاتصال الحي اتفتح تمام نوقف الاحتياطي، ولو لأ نشغّله
+      if (status === 'SUBSCRIBED') stopFallback();
+      else startFallback();
+    });
 }
 
 // ---------- لوحة الأدمن ----------
@@ -1687,10 +1982,64 @@ async function loadUsers() {
         else await loadUsers();
       };
       row.appendChild(kb);
+
+      // حذف الحساب نهائياً (الأدمن بس، ومش بيتنفذ على أدمن)
+      const db = document.createElement('button');
+      db.textContent = 'حذف';
+      db.className = 'danger-btn';
+      db.onclick = async () => {
+        if (p.role === 'admin') return alert('مينفعش تحذف أدمن من هنا');
+        const name = p.display_name || p.id.slice(0, 8);
+        if (!confirm(`هتحذف حساب "${name}" نهائياً ورسايله وبياناته؟ ومش هيرجع.`)) return;
+        try {
+          const { data, error } = await sb.functions.invoke('admin-delete-user', { body: { userId: p.id } });
+          if (error || (data && data.error)) {
+            alert('الحذف ما اتعملش: ' + ((data && data.error) || (error && error.message) || ''));
+            return;
+          }
+          await loadUsers();
+        } catch {
+          alert('حصلت مشكلة، جرّب تاني.');
+        }
+      };
+      row.appendChild(db);
     }
 
     box.appendChild(row);
   });
+}
+
+// أي حد يشوف رسايل عضو تاني في الشعبة والمستوى الحالي بس (الرسايل اللي هو أصلاً شايفها)
+function showUserMessages(userId, name) {
+  const list = $('history-list');
+  list.innerHTML = '';
+
+  const mine = [...msgById.values()]
+    .filter(m => m.user_id === userId)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  const head = document.createElement('p');
+  head.className = 'empty';
+  head.textContent = (lang === 'en' ? 'Messages by ' : 'رسايل ') + name + ` (${mine.length}) · ${currentRoom()}`;
+  list.appendChild(head);
+
+  if (!mine.length) {
+    const none = document.createElement('p');
+    none.className = 'empty';
+    none.textContent = t('noRows');
+    list.appendChild(none);
+  }
+
+  mine.forEach(m => {
+    const a = document.createElement('div');
+    a.className = 'hist-item';
+    const text = m.content || (m.file_url ? '📎 ' + fileName(m.file_url) : '');
+    a.innerHTML = `<b>${esc(text.slice(0, 200))}</b><span>${new Date(m.created_at).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}</span>`;
+    list.appendChild(a);
+  });
+
+  $('members-panel').classList.add('hidden');
+  $('history-modal').classList.remove('hidden');
 }
 
 // ---------- زرار إظهار/إخفاء الباسورد ----------
