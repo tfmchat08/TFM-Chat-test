@@ -1,7 +1,7 @@
 // ---------- صفحة الاختبارات: الأسئلة + إنشاء الامتحانات + السجل + التصحيح على السيرفر ----------
 
-const SUPABASE_URL = 'https://jifoamltmdgpawpjgrbz.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_IiaTAO0BNUJTp_pzVidhhA_e1g82vpi';
+const SUPABASE_URL = 'https://TEST_REF.supabase.co';
+const SUPABASE_KEY = 'TEST_KEY';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const $ = id => document.getElementById(id);
